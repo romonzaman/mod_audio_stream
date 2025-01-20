@@ -22,6 +22,7 @@ static void responseHandler(switch_core_session_t* session, const char* eventNam
 static switch_bool_t capture_callback(switch_media_bug_t *bug, void *user_data, switch_abc_type_t type)
 {
     switch_core_session_t *session = switch_core_media_bug_get_session(bug);
+    private_t *tech_pvt = (private_t *)user_data;
 
     switch (type) {
         case SWITCH_ABC_TYPE_INIT:
@@ -30,11 +31,16 @@ static switch_bool_t capture_callback(switch_media_bug_t *bug, void *user_data, 
         case SWITCH_ABC_TYPE_CLOSE:
             {
                 switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_INFO, "Got SWITCH_ABC_TYPE_CLOSE.\n");
-                stream_session_cleanup(session, NULL, 1);
+                // Check if this is a normal channel closure or a requested closure
+                int channelIsClosing = tech_pvt->close_requested ? 0 : 1;
+                stream_session_cleanup(session, NULL, channelIsClosing);
             }
             break;
 
         case SWITCH_ABC_TYPE_READ:
+            if (tech_pvt->close_requested) {
+                return SWITCH_FALSE;
+            }
             return stream_frame(bug);
             break;
 
@@ -199,12 +205,14 @@ SWITCH_STANDARD_API(stream_function)
                     switch_core_session_rwunlock(lsession);
                     goto done;
                 }
-                if (0 == strcmp(argv[4], "16k")) {
-                    sampling = 16000;
-                } else if (0 == strcmp(argv[4], "8k")) {
-                    sampling = 8000;
-                } else {
-                    sampling = atoi(argv[4]);
+                if (argc > 4) {
+                    if (0 == strcmp(argv[4], "16k")) {
+                        sampling = 16000;
+                    } else if (0 == strcmp(argv[4], "8k")) {
+                        sampling = 8000;
+                    } else {
+                        sampling = atoi(argv[4]);
+                    }
                 }
                 if (!validate_ws_uri(argv[2], &wsUri[0])) {
                     switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR,
@@ -255,9 +263,12 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_audio_stream_load)
         return SWITCH_STATUS_TERM;
     }
     SWITCH_ADD_API(api_interface, "uuid_audio_stream", "audio_stream API", stream_function, STREAM_API_SYNTAX);
-    switch_console_set_complete("add uuid_audio_stream start wss-url metadata");
-    switch_console_set_complete("add uuid_audio_stream start wss-url");
-    switch_console_set_complete("add uuid_audio_stream stop");
+    switch_console_set_complete("add uuid_audio_stream ::console::list_uuid start wss-url metadata");
+    switch_console_set_complete("add uuid_audio_stream ::console::list_uuid start wss-url");
+    switch_console_set_complete("add uuid_audio_stream ::console::list_uuid stop");
+    switch_console_set_complete("add uuid_audio_stream ::console::list_uuid pause");
+    switch_console_set_complete("add uuid_audio_stream ::console::list_uuid resume");
+    switch_console_set_complete("add uuid_audio_stream ::console::list_uuid send_text");
 
     switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_NOTICE, "mod_audio_stream API successfully loaded\n");
 
